@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Stack front sp-fr project
+
+Parameters:
+  Environment:
+    Description: environment
+    Type: String
+    AllowedValues:
+      - develop
+
+Resources:
+
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Sub 
+        - 'webapp-sp-fr-${Env}'
+        - Env: !Ref Environment
+      AccessControl: Private
+      LoggingConfiguration:
+        DestinationBucketName: !Ref LoggingBucket
+        LogFilePrefix: s3-access-logs
+      VersioningConfiguration:
+        Status: Enabled
+      WebsiteConfiguration:
+        IndexDocument: "index.html"
+        ErrorDocument: "error.html"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: 'AES256'
+  
+  CloudFrontCloudFrontOriginAccessIdentityFrontClient:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 'Identity for accessing S3 bucket'
+
+  # The Amazon S3 bucket policy.
+  BucketSiteFrontClientPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Sub 
+        - 'webapp-sp-fr-${Env}'
+        - Env: !Ref Environment
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'S3GetObjectForCloudFront'
+            Effect: 'Allow'
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontCloudFrontOriginAccessIdentityFrontClient.S3CanonicalUserId
+            Action: 's3:GetObject'
+            Resource: !Sub ${S3Bucket.Arn}/*
+          - Sid: 'S3ListBucketForCloudFront'
+            Effect: 'Allow'
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontCloudFrontOriginAccessIdentityFrontClient.S3CanonicalUserId
+            Action: 's3:ListBucket'
+            Resource: !Sub ${S3Bucket.Arn}
+          - Effect: Deny
+            Action: '*'
+            Principal: '*'
+            Resource:
+              - !Sub '${S3Bucket.Arn}/*'
+              - !Sub '${S3Bucket.Arn}'
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  # The Amazon S3 bucket into which access logs from S3 (for the application) and CloudFront will be put
+  LoggingBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Sub
+        - 'webapp-sp-fr-${Env}-logs'
+        - Env: !Ref Environment
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: 'AES256'
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+    DeletionPolicy: Delete
+
+  LoggingBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      PolicyDocument:
+        Id: SecurityPolicy
+        Version: 2012-10-17
+        Statement:
+          - Sid: PolicyForCloudFrontPrivateContent
+            Effect: Allow
+            Resource: !Sub ${LoggingBucket.Arn}/*
+            Principal:
+              Service: "cloudfront.amazonaws.com"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CFDistribution}
+            Action: 's3:GetObject*'
+      Bucket: !Ref LoggingBucket
+
+
+  # The Amazon CloudFront distribution exposing our Single Page Application
+  CFDistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        Origins:
+        - DomainName: !GetAtt S3Bucket.RegionalDomainName
+          Id: myS3Origin
+          ConnectionAttempts: 3
+          ConnectionTimeout: 10
+          OriginPath: ''
+          S3OriginConfig:
+            OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontCloudFrontOriginAccessIdentityFrontClient}'
+        Enabled: 'true'
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          AllowedMethods:
+          - GET
+          - HEAD
+          - OPTIONS
+          ForwardedValues:
+            QueryString: true
+          TargetOriginId: myS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+        PriceClass: PriceClass_All
+        Logging:
+          Bucket: !GetAtt LoggingBucket.RegionalDomainName
+          Prefix: 'cloudfront-access-logs'
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true   
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponsePagePath: "/index.html"
+            ResponseCode: 200
+            ErrorCachingMinTTL: 300
+          - ErrorCode: 404
+            ResponsePagePath: "/index.html"
+            ResponseCode: 200
+            ErrorCachingMinTTL: 300      
+
+  # The Amazon CloudFront origin access control
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    DependsOn:
+      - S3Bucket
+    Properties: 
+      OriginAccessControlConfig:
+        Description: Default Origin Access Control
+        Name: !Ref AWS::StackName
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+Outputs:
+  BucketName:
+    Value: !Ref S3Bucket
+  CFDistributionURL:
+    Value: !GetAtt CFDistribution.DomainName
