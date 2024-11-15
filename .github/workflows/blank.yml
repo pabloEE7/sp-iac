@@ -35,9 +35,11 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v3
         with:
-          role-to-assume: AKIAUC3HU62T5BIFJPBD
+          role-to-assume: role-name
+          source-account-id: 123456789012  # ID de la cuenta de AWS
           role-session-name: sp-fr-front-deploy-dev
           aws-region: us-east-1
+
       
       # Descargar la plantilla de CloudFormation
       - name: Deploy CloudFormation Stack
