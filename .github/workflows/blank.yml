@@ -51,7 +51,7 @@ jobs:
           --parameter-overrides Environment=develop
 
 
-      # Mostrar las URLs de salida
+      # Mostrar las URLs de salida x
       - name: Get CloudFormation Outputs
         run: |
           aws cloudformation describe-stacks \
