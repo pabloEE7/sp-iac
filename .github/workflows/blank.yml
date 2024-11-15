@@ -36,8 +36,8 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v3
         with:
           role-to-assume: role-name
-          source-account-id: 123456789012  # ID de la cuenta de AWS
-          role-session-name: sp-fr-front-deploy-dev
+          source-account-id: arn:aws:iam::281000867495:user/deploy
+          role-session-name: deploy
           aws-region: us-east-1
 
       
